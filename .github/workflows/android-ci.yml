@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-test:
@@ -41,9 +41,38 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Upload debug APK
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: kavi-android-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Prepare release APK
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          cp app/build/outputs/apk/debug/app-debug.apk "kavi-android-${SHORT_SHA}.apk"
+          echo "RELEASE_TAG=build-${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "APK_NAME=kavi-android-${SHORT_SHA}.apk" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${SHORT_SHA}" >> "$GITHUB_ENV"
+
+      - name: Create or update commit release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$APK_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" "$APK_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Kavi Android ${SHORT_SHA}" \
+              --notes "Automatic debug APK build for commit ${GITHUB_SHA}." \
+              --prerelease
+          fi
