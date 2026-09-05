@@ -73,6 +73,5 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Kavi Android ${SHORT_SHA}" \
-              --notes "Automatic debug APK build for commit ${GITHUB_SHA}." \
-              --prerelease
+              --notes "Automatic debug APK build for commit ${GITHUB_SHA}."
           fi
