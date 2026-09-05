@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -78,7 +79,9 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { creationChoice = true }) { Text("+", style = MaterialTheme.typography.headlineSmall) }
+            FloatingActionButton(onClick = { creationChoice = true }) {
+                Text("+", style = MaterialTheme.typography.headlineSmall)
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -100,9 +103,7 @@ fun HomeScreen(
             }
             item { SectionTitle("Folders") }
             if (snapshot.folders.isEmpty() && unfiled.isEmpty()) {
-                item {
-                    EmptySurface("Create your first folder or deck. Everything stays on this device.")
-                }
+                item { EmptySurface("Create your first folder or deck. Everything stays on this device.") }
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -178,8 +179,14 @@ fun HomeScreen(
             text = { Text("You can keep its decks by moving them to Unfiled, or delete the complete folder contents.") },
             confirmButton = {
                 Row {
-                    TextButton(onClick = { scope.launch { repository.deleteFolder(folder.id, false) }; deletingFolder = null }) { Text("Delete all") }
-                    TextButton(onClick = { scope.launch { repository.deleteFolder(folder.id, true) }; deletingFolder = null }) { Text("Keep decks") }
+                    TextButton(onClick = {
+                        scope.launch { repository.deleteFolder(folder.id, false) }
+                        deletingFolder = null
+                    }) { Text("Delete all") }
+                    TextButton(onClick = {
+                        scope.launch { repository.deleteFolder(folder.id, true) }
+                        deletingFolder = null
+                    }) { Text("Keep decks") }
                 }
             },
             dismissButton = { TextButton(onClick = { deletingFolder = null }) { Text("Cancel") } }
@@ -222,9 +229,9 @@ fun FolderScreen(
                     cardCount = snapshot.cardCount(deck.id),
                     onClick = { onOpenDeck(deck.id) },
                     trailing = {
-                        TextButton(onClick = { scope.launch { repository.setPinned(deck.id, !deck.isPinned) } }) {
-                            Text(if (deck.isPinned) "★" else "☆")
-                        }
+                        TextButton(onClick = {
+                            scope.launch { repository.setPinned(deck.id, !deck.isPinned) }
+                        }) { Text(if (deck.isPinned) "★" else "☆") }
                     }
                 )
             }
@@ -265,12 +272,17 @@ fun DeckDetailScreen(
                 navigationIcon = { TextButton(onClick = onBack) { Text("‹ Back") } },
                 actions = {
                     if (deck != null) {
-                        TextButton(onClick = { scope.launch { repository.setPinned(deck.id, !deck.isPinned) } }) { Text(if (deck.isPinned) "★" else "☆") }
+                        TextButton(onClick = {
+                            scope.launch { repository.setPinned(deck.id, !deck.isPinned) }
+                        }) { Text(if (deck.isPinned) "★" else "☆") }
                         Box {
                             TextButton(onClick = { menu = true }) { Text("⋮") }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; rename = true })
-                                DropdownMenuItem(text = { Text("Duplicate") }, onClick = { menu = false; scope.launch { repository.duplicateDeck(deck.id) } })
+                                DropdownMenuItem(text = { Text("Duplicate") }, onClick = {
+                                    menu = false
+                                    scope.launch { repository.duplicateDeck(deck.id) }
+                                })
                                 DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; deleteDeck = true })
                             }
                         }
@@ -330,7 +342,13 @@ fun DeckDetailScreen(
             onDismissRequest = { deleteDeck = false },
             title = { Text("Delete ${deck.name}?") },
             text = { Text("Its cards and local progress will be deleted.") },
-            confirmButton = { TextButton(onClick = { scope.launch { repository.deleteDeck(deck.id) }; deleteDeck = false; onBack() }) { Text("Delete") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { repository.deleteDeck(deck.id) }
+                    deleteDeck = false
+                    onBack()
+                }) { Text("Delete") }
+            },
             dismissButton = { TextButton(onClick = { deleteDeck = false }) { Text("Cancel") } }
         )
     }
@@ -367,7 +385,12 @@ private fun FolderCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (folder == null) "Unfiled" else "▰  ${folder.name}", fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                if (folder == null) "Unfiled" else "▰  ${folder.name}",
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Text("$deckCount deck${if (deckCount == 1) "" else "s"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (folder != null) {
                 Row {
@@ -453,8 +476,17 @@ private fun NameDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { OutlinedTextField(value = value, onValueChange = { value = it }, label = { Text(label) }, singleLine = true) },
-        confirmButton = { TextButton(enabled = value.trim().isNotEmpty(), onClick = { onConfirm(value.trim()) }) { Text("Save") } },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                label = { Text(label) },
+                singleLine = true
+            )
+        },
+        confirmButton = {
+            TextButton(enabled = value.trim().isNotEmpty(), onClick = { onConfirm(value.trim()) }) { Text("Save") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
@@ -472,8 +504,8 @@ private fun CardEditorDialog(
         title = { Text(if (card == null) "New card" else "Edit card") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(term, { term = it }, label = { Text("Term") })
-                OutlinedTextField(definition, { definition = it }, label = { Text("Definition") })
+                OutlinedTextField(value = term, onValueChange = { term = it }, label = { Text("Term") })
+                OutlinedTextField(value = definition, onValueChange = { definition = it }, label = { Text("Definition") })
             }
         },
         confirmButton = {

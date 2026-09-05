@@ -82,7 +82,7 @@ fun SettingsScreen(
                     title = "Language",
                     values = AppLanguage.entries,
                     selected = state.language,
-                    label = { it.name.replaceFirstChar(Char::uppercase) },
+                    label = { value -> value.name.replaceFirstChar { it.uppercase() } },
                     onSelected = { scope.launch { repository.setLanguage(it) } }
                 )
             }

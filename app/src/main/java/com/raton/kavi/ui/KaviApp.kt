@@ -44,7 +44,7 @@ fun KaviApp() {
                 folderId = raw.takeUnless { it == "unfiled" },
                 snapshot = snapshot,
                 repository = repository,
-                onBack = navController::popBackStack,
+                onBack = { navController.popBackStack() },
                 onOpenDeck = { navController.navigate("deck/$it") }
             )
         }
@@ -56,14 +56,14 @@ fun KaviApp() {
                 deckId = entry.arguments?.getString("deckId").orEmpty(),
                 snapshot = snapshot,
                 repository = repository,
-                onBack = navController::popBackStack
+                onBack = { navController.popBackStack() }
             )
         }
         composable("settings") {
             SettingsScreen(
                 state = settings,
                 repository = preferences,
-                onBack = navController::popBackStack
+                onBack = { navController.popBackStack() }
             )
         }
     }

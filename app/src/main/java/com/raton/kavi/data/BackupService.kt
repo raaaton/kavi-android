@@ -7,6 +7,7 @@ import com.raton.kavi.domain.BackupDeckDTO
 import com.raton.kavi.domain.BackupEnvelope
 import com.raton.kavi.domain.BackupFolderDTO
 import com.raton.kavi.domain.BackupScope
+import com.raton.kavi.domain.DeckTestConfiguration
 import java.nio.charset.StandardCharsets
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -17,9 +18,7 @@ import kotlinx.serialization.json.int
 object BackupCodec {
     private val json = Json {
         prettyPrint = true
-        prettyPrintIndent = "  "
         encodeDefaults = true
-        explicitNulls = false
         ignoreUnknownKeys = true
     }
 
@@ -131,7 +130,7 @@ class BackupService(private val database: KaviDatabase) {
         envelope.decks.forEach { dto ->
             val current = existingDecks[dto.id]
             val currentConfig = current?.let { TestConfigurationCodec.decode(it.testConfigurationData) }
-                ?: com.raton.kavi.domain.DeckTestConfiguration.useFlashcards
+                ?: DeckTestConfiguration.useFlashcards
             val shell = DeckEntity(
                 id = dto.id,
                 name = dto.name,
