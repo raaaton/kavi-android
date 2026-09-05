@@ -25,13 +25,14 @@ class LibraryRepository(private val database: KaviDatabase) {
         LibrarySnapshot(folderList, deckList, cardList)
     }
 
-    suspend fun createFolder(name: String): String {
+    suspend fun createFolder(name: String): String = database.withTransaction {
         val clean = name.trim()
         require(clean.isNotEmpty())
+        normalizeFolderOrder()
         val id = newUUID()
-        val nextOrder = (folders.maxSortOrder() ?: -1).coerceAtMost(Int.MAX_VALUE - 1) + 1
+        val nextOrder = folders.getAll().size
         folders.insert(FolderEntity(id, clean, nowIso8601(), sortOrder = nextOrder))
-        return id
+        id
     }
 
     suspend fun renameFolder(id: String, name: String) {
@@ -62,8 +63,9 @@ class LibraryRepository(private val database: KaviDatabase) {
 
     suspend fun duplicateFolder(id: String): String? = database.withTransaction {
         val source = folders.getAll().firstOrNull { it.id == id } ?: return@withTransaction null
+        normalizeFolderOrder()
         val newFolderId = newUUID()
-        val nextOrder = (folders.maxSortOrder() ?: -1).coerceAtMost(Int.MAX_VALUE - 1) + 1
+        val nextOrder = folders.getAll().size
         folders.insert(
             source.copy(
                 id = newFolderId,
@@ -135,9 +137,10 @@ class LibraryRepository(private val database: KaviDatabase) {
         val cleanDefinition = definition.trim()
         require(cleanTerm.isNotEmpty() && cleanDefinition.isNotEmpty())
         val deck = decks.getById(deckId) ?: error("Deck not found")
-        val deckCards = cards.getForDeck(deckId)
+        normalizeCardOrder(deckId)
         val id = newUUID()
-        cards.insert(CardEntity(id, cleanTerm, cleanDefinition, deckCards.size, deckId = deckId))
+        val nextPosition = cards.getForDeck(deckId).size
+        cards.insert(CardEntity(id, cleanTerm, cleanDefinition, nextPosition, deckId = deckId))
         decks.update(deck.copy(updatedAt = nowIso8601()))
         id
     }
@@ -175,9 +178,7 @@ class LibraryRepository(private val database: KaviDatabase) {
         val (card, deck) = cardAndDeck(id) ?: return@withTransaction
         val config = TestConfigurationCodec.decode(deck.testConfigurationData).removingQuestions(setOf(id))
         cards.deleteById(id)
-        cards.getForDeck(card.deckId).forEachIndexed { index, entry ->
-            if (entry.position != index) cards.update(entry.copy(position = index))
-        }
+        normalizeCardOrder(card.deckId)
         decks.update(
             deck.copy(
                 updatedAt = nowIso8601(),
@@ -200,6 +201,7 @@ class LibraryRepository(private val database: KaviDatabase) {
             source.copy(
                 id = newDeckId,
                 name = if (addCopySuffix) "${source.name} — Copy" else source.name,
+                deckDescription = null,
                 createdAt = now,
                 updatedAt = now,
                 lastOpenedAt = null,
@@ -227,6 +229,7 @@ class LibraryRepository(private val database: KaviDatabase) {
                 )
             )
         }
+        normalizeCardOrder(newDeckId)
         return newDeckId
     }
 
@@ -239,6 +242,12 @@ class LibraryRepository(private val database: KaviDatabase) {
     private suspend fun normalizeFolderOrder() {
         folders.getAll().forEachIndexed { index, folder ->
             if (folder.sortOrder != index) folders.update(folder.copy(sortOrder = index))
+        }
+    }
+
+    private suspend fun normalizeCardOrder(deckId: String) {
+        cards.getForDeck(deckId).forEachIndexed { index, card ->
+            if (card.position != index) cards.update(card.copy(position = index))
         }
     }
 
