@@ -60,6 +60,9 @@ interface CardDao {
     @Query("SELECT * FROM cards ORDER BY deckId ASC, position ASC, id ASC")
     fun observeAll(): Flow<List<CardEntity>>
 
+    @Query("SELECT * FROM cards ORDER BY deckId ASC, position ASC, id ASC")
+    suspend fun getAll(): List<CardEntity>
+
     @Query("SELECT * FROM cards WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): CardEntity?
 

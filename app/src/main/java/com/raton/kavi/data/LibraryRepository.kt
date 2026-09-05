@@ -30,14 +30,7 @@ class LibraryRepository(private val database: KaviDatabase) {
         require(clean.isNotEmpty())
         val id = newUUID()
         val nextOrder = (folders.maxSortOrder() ?: -1).coerceAtMost(Int.MAX_VALUE - 1) + 1
-        folders.insert(
-            FolderEntity(
-                id = id,
-                name = clean,
-                createdAt = nowIso8601(),
-                sortOrder = nextOrder
-            )
-        )
+        folders.insert(FolderEntity(id, clean, nowIso8601(), sortOrder = nextOrder))
         return id
     }
 
@@ -64,6 +57,25 @@ class LibraryRepository(private val database: KaviDatabase) {
     suspend fun deleteFolder(id: String, keepDecks: Boolean) = database.withTransaction {
         if (keepDecks) decks.clearFolder(id, nowIso8601())
         folders.deleteById(id)
+        normalizeFolderOrder()
+    }
+
+    suspend fun duplicateFolder(id: String): String? = database.withTransaction {
+        val source = folders.getAll().firstOrNull { it.id == id } ?: return@withTransaction null
+        val newFolderId = newUUID()
+        val nextOrder = (folders.maxSortOrder() ?: -1).coerceAtMost(Int.MAX_VALUE - 1) + 1
+        folders.insert(
+            source.copy(
+                id = newFolderId,
+                name = "${source.name} — Copy",
+                createdAt = nowIso8601(),
+                sortOrder = nextOrder
+            )
+        )
+        decks.getInFolder(id).sortedBy { it.createdAt }.forEach { sourceDeck ->
+            duplicateDeckInternal(sourceDeck, newFolderId)
+        }
+        newFolderId
     }
 
     suspend fun createDeck(name: String, folderId: String? = null): String {
@@ -71,15 +83,7 @@ class LibraryRepository(private val database: KaviDatabase) {
         require(clean.isNotEmpty())
         val id = newUUID()
         val now = nowIso8601()
-        decks.insert(
-            DeckEntity(
-                id = id,
-                name = clean,
-                createdAt = now,
-                updatedAt = now,
-                folderId = folderId
-            )
-        )
+        decks.insert(DeckEntity(id = id, name = clean, createdAt = now, updatedAt = now, folderId = folderId))
         return id
     }
 
@@ -88,6 +92,11 @@ class LibraryRepository(private val database: KaviDatabase) {
         val clean = name.trim()
         require(clean.isNotEmpty())
         decks.update(deck.copy(name = clean, updatedAt = nowIso8601()))
+    }
+
+    suspend fun moveDeck(id: String, folderId: String?) {
+        val deck = decks.getById(id) ?: return
+        decks.update(deck.copy(folderId = folderId, updatedAt = nowIso8601()))
     }
 
     suspend fun setPinned(id: String, pinned: Boolean) {
@@ -106,43 +115,19 @@ class LibraryRepository(private val database: KaviDatabase) {
 
     suspend fun duplicateDeck(id: String): String? = database.withTransaction {
         val source = decks.getById(id) ?: return@withTransaction null
-        val sourceCards = cards.getForDeck(id)
-        val newDeckId = newUUID()
-        val now = nowIso8601()
-        val cardIDMap = sourceCards.associate { it.id to newUUID() }
-        val config = TestConfigurationCodec.decode(source.testConfigurationData)
-            .duplicated(cardIDMap, ::newUUID)
-        decks.insert(
-            source.copy(
-                id = newDeckId,
-                name = "${source.name} — Copy",
-                createdAt = now,
-                updatedAt = now,
-                lastOpenedAt = null,
-                completedStudySessions = 0,
-                activeStudySessionData = null,
-                completedTestSessions = 0,
-                activeTestSessionData = null,
-                studyHistoryData = null,
-                lastStudyActivityAt = null,
-                lastTestActivityAt = null,
-                isPinned = false,
-                testConfigurationData = TestConfigurationCodec.encodeOrNull(config)
+        duplicateDeckInternal(source, source.folderId, addCopySuffix = true)
+    }
+
+    suspend fun setTestConfiguration(id: String, configuration: DeckTestConfiguration) {
+        val deck = decks.getById(id) ?: return
+        val validCardIDs = cards.getForDeck(id).mapTo(mutableSetOf()) { it.id }
+        val clean = configuration.validated(validCardIDs)
+        decks.update(
+            deck.copy(
+                testConfigurationData = TestConfigurationCodec.encodeOrNull(clean),
+                updatedAt = nowIso8601()
             )
         )
-        sourceCards.sortedBy { it.position }.forEach { card ->
-            cards.insert(
-                card.copy(
-                    id = cardIDMap.getValue(card.id),
-                    deckId = newDeckId,
-                    mastered = false,
-                    testMastered = false,
-                    timesStudied = 0,
-                    timesCorrect = 0
-                )
-            )
-        }
-        newDeckId
     }
 
     suspend fun createCard(deckId: String, term: String, definition: String): String = database.withTransaction {
@@ -152,15 +137,7 @@ class LibraryRepository(private val database: KaviDatabase) {
         val deck = decks.getById(deckId) ?: error("Deck not found")
         val deckCards = cards.getForDeck(deckId)
         val id = newUUID()
-        cards.insert(
-            CardEntity(
-                id = id,
-                term = cleanTerm,
-                definition = cleanDefinition,
-                position = deckCards.size,
-                deckId = deckId
-            )
-        )
+        cards.insert(CardEntity(id, cleanTerm, cleanDefinition, deckCards.size, deckId = deckId))
         decks.update(deck.copy(updatedAt = nowIso8601()))
         id
     }
@@ -196,8 +173,7 @@ class LibraryRepository(private val database: KaviDatabase) {
 
     suspend fun deleteCard(id: String) = database.withTransaction {
         val (card, deck) = cardAndDeck(id) ?: return@withTransaction
-        val config = TestConfigurationCodec.decode(deck.testConfigurationData)
-            .removingQuestions(setOf(id))
+        val config = TestConfigurationCodec.decode(deck.testConfigurationData).removingQuestions(setOf(id))
         cards.deleteById(id)
         cards.getForDeck(card.deckId).forEachIndexed { index, entry ->
             if (entry.position != index) cards.update(entry.copy(position = index))
@@ -210,10 +186,60 @@ class LibraryRepository(private val database: KaviDatabase) {
         )
     }
 
+    private suspend fun duplicateDeckInternal(
+        source: DeckEntity,
+        folderId: String?,
+        addCopySuffix: Boolean = false
+    ): String {
+        val sourceCards = cards.getForDeck(source.id)
+        val newDeckId = newUUID()
+        val now = nowIso8601()
+        val cardIDMap = sourceCards.associate { it.id to newUUID() }
+        val config = TestConfigurationCodec.decode(source.testConfigurationData).duplicated(cardIDMap, ::newUUID)
+        decks.insert(
+            source.copy(
+                id = newDeckId,
+                name = if (addCopySuffix) "${source.name} — Copy" else source.name,
+                createdAt = now,
+                updatedAt = now,
+                lastOpenedAt = null,
+                completedStudySessions = 0,
+                activeStudySessionData = null,
+                completedTestSessions = 0,
+                activeTestSessionData = null,
+                studyHistoryData = null,
+                lastStudyActivityAt = null,
+                lastTestActivityAt = null,
+                isPinned = false,
+                testConfigurationData = TestConfigurationCodec.encodeOrNull(config),
+                folderId = folderId
+            )
+        )
+        sourceCards.sortedBy { it.position }.forEach { card ->
+            cards.insert(
+                card.copy(
+                    id = cardIDMap.getValue(card.id),
+                    deckId = newDeckId,
+                    mastered = false,
+                    testMastered = false,
+                    timesStudied = 0,
+                    timesCorrect = 0
+                )
+            )
+        }
+        return newDeckId
+    }
+
     private suspend fun cardAndDeck(id: String): Pair<CardEntity, DeckEntity>? {
         val card = cards.getById(id) ?: return null
         val deck = decks.getById(card.deckId) ?: return null
         return card to deck
+    }
+
+    private suspend fun normalizeFolderOrder() {
+        folders.getAll().forEachIndexed { index, folder ->
+            if (folder.sortOrder != index) folders.update(folder.copy(sortOrder = index))
+        }
     }
 
     companion object {
@@ -228,7 +254,7 @@ class LibraryRepository(private val database: KaviDatabase) {
 }
 
 object TestConfigurationCodec {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
 
     fun decode(value: String?): DeckTestConfiguration = value
         ?.let { runCatching { json.decodeFromString<DeckTestConfiguration>(it) }.getOrNull() }

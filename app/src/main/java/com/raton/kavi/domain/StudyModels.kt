@@ -1,5 +1,6 @@
 package com.raton.kavi.domain
 
+import kotlin.math.roundToInt
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -62,7 +63,7 @@ data class StudySessionState(
     val judgments: List<StudyJudgment>? = emptyList()
 ) {
     val successRate: Int
-        get() = if (cardsSeen == 0) 0 else ((correctAnswers.toDouble() / cardsSeen) * 100).toInt()
+        get() = if (cardsSeen == 0) 0 else ((correctAnswers.toDouble() / cardsSeen) * 100).roundToInt()
 }
 
 @Serializable
@@ -71,3 +72,19 @@ data class ActiveStudySessionSnapshot(
     val sessionNumber: Int,
     val state: StudySessionState
 )
+
+@Serializable
+enum class StudyHistoryMode { flashcards, test }
+
+@Serializable
+data class StudyHistoryEntry(
+    val id: String,
+    val completedAt: Double,
+    val mode: StudyHistoryMode,
+    val itemCount: Int,
+    val correctCount: Int,
+    val incorrectCount: Int
+) {
+    val successRate: Int
+        get() = if (itemCount == 0) 0 else ((correctCount.toDouble() / itemCount) * 100).roundToInt()
+}

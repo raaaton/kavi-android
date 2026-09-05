@@ -2,6 +2,7 @@ package com.raton.kavi.domain
 
 import java.text.Normalizer
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -30,10 +31,47 @@ data class DeckTestConfiguration(
     val multipleChoice: List<AuthoredMultipleChoiceQuestion> = emptyList(),
     val trueFalse: List<AuthoredTrueFalseQuestion> = emptyList()
 ) {
+    val authoredQuestionCount: Int get() = multipleChoice.size + trueFalse.size
+
+    fun validated(validCardIDs: Set<String>): DeckTestConfiguration {
+        if (mode == DeckTestCreationMode.useFlashcards) return useFlashcards
+        val seen = mutableSetOf<String>()
+        val cleanMultipleChoice = multipleChoice.map { question ->
+            require(question.sourceCardID in validCardIDs) { "Unknown source card" }
+            require(seen.add(question.id)) { "Duplicate question id" }
+            val prompt = TestText.clean(question.prompt)
+            val choices = question.choices.map(TestText::clean)
+            require(prompt.isNotEmpty()) { "Empty prompt" }
+            require(choices.size in 2..6 && choices.all { it.isNotEmpty() }) { "Invalid choices" }
+            require(choices.map(TestText::normalize).toSet().size == choices.size) { "Duplicate choices" }
+            require(question.correctChoiceIndex in choices.indices) { "Invalid correct choice" }
+            question.copy(prompt = prompt, choices = choices)
+        }
+        val cleanTrueFalse = trueFalse.map { question ->
+            require(question.sourceCardID in validCardIDs) { "Unknown source card" }
+            require(seen.add(question.id)) { "Duplicate question id" }
+            val statement = TestText.clean(question.statement)
+            require(statement.isNotEmpty()) { "Empty statement" }
+            question.copy(statement = statement)
+        }
+        return copy(multipleChoice = cleanMultipleChoice, trueFalse = cleanTrueFalse)
+    }
+
     fun removingQuestions(linkedTo: Set<String>): DeckTestConfiguration = copy(
         multipleChoice = multipleChoice.filterNot { it.sourceCardID in linkedTo },
         trueFalse = trueFalse.filterNot { it.sourceCardID in linkedTo }
     )
+
+    fun mergingQuestions(incoming: DeckTestConfiguration): DeckTestConfiguration {
+        if (incoming.mode == DeckTestCreationMode.useFlashcards) return useFlashcards
+        val multiple = linkedMapOf<String, AuthoredMultipleChoiceQuestion>()
+        multipleChoice.forEach { multiple[it.id] = it }
+        incoming.multipleChoice.forEach { multiple[it.id] = it }
+        val booleans = linkedMapOf<String, AuthoredTrueFalseQuestion>()
+        trueFalse.forEach { booleans[it.id] = it }
+        incoming.trueFalse.forEach { booleans[it.id] = it }
+        return DeckTestConfiguration(incoming.mode, multiple.values.toList(), booleans.values.toList())
+    }
 
     fun duplicated(cardIDMap: Map<String, String>, newID: () -> String): DeckTestConfiguration {
         if (mode == DeckTestCreationMode.useFlashcards) return useFlashcards
@@ -88,7 +126,7 @@ data class TestSessionState(
 ) {
     val isComplete: Boolean get() = currentIndex >= questions.size
     val correctCount: Int get() = answers.count { it.isCorrect }
-    val score: Int get() = if (answers.isEmpty()) 0 else ((correctCount.toDouble() / answers.size) * 100).toInt()
+    val score: Int get() = if (answers.isEmpty()) 0 else ((correctCount.toDouble() / answers.size) * 100).roundToInt()
 }
 
 @Serializable
@@ -107,7 +145,7 @@ object TestText {
     fun clean(value: String): String = value.trim()
 
     fun normalize(value: String): String {
-        val decomposed = Normalizer.normalize(clean(value), Normalizer.Form.NFD)
+        val decomposed = Normalizer.normalize(clean(value), Normalizer.Form.NFKD)
             .replace("\\p{M}+".toRegex(), "")
         return decomposed
             .lowercase(Locale.FRANCE)
